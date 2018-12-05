@@ -2457,7 +2457,6 @@ mfxStatus VAAPIFEIPAKEncoder::QueryStatus(
     mdprintf(stderr, "VAAPIFEIPAKEncoder::QueryStatus frame: %d\n", task.m_frameOrder);
     //------------------------------------------
     // (1) mapping feedbackNumber -> surface & bs
-    VASurfaceID waitSurface     = VA_INVALID_SURFACE;
 
     mfxU32 indxSurf, feiFieldId = task.m_fid[fieldId];
 
@@ -2469,22 +2468,10 @@ mfxStatus VAAPIFEIPAKEncoder::QueryStatus(
 
         if (currentFeedback.number == task.m_statusReportNumber[feiFieldId])
         {
-            waitSurface = currentFeedback.surface;
             break;
         }
     }
     MFX_CHECK(indxSurf != m_statFeedbackCache.size(), MFX_ERR_UNKNOWN);
-
-
-    {
-        MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaSyncSurface");
-        vaSts = vaSyncSurface(m_vaDisplay, waitSurface);
-    }
-
-    //  ignore VA_STATUS_ERROR_DECODING_ERROR in encoder
-    if (vaSts == VA_STATUS_ERROR_DECODING_ERROR)
-        vaSts = VA_STATUS_SUCCESS;
-    MFX_CHECK_WITH_ASSERT(VA_STATUS_SUCCESS == vaSts, MFX_ERR_DEVICE_FAILED);
 
     VACodedBufferSegment *codedBufferSegment;
     {
