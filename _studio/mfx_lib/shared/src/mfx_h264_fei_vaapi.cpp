@@ -679,35 +679,38 @@ mfxStatus VAAPIFEIPREENCEncoder::QueryStatus(
     }
     MFX_CHECK(indxSurf != m_statFeedbackCache.size(), MFX_ERR_UNKNOWN);
 
-    {
-        MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaSyncSurface");
-        vaSts = vaSyncSurface(m_vaDisplay, waitSurface);
-    }
-    // following code is workaround:
-    // because of driver bug it could happen that decoding error will not be returned after decoder sync
-    // and will be returned at subsequent encoder sync instead
-    // just ignore VA_STATUS_ERROR_DECODING_ERROR in encoder
-    if (vaSts == VA_STATUS_ERROR_DECODING_ERROR)
-        vaSts = VA_STATUS_SUCCESS;
-    MFX_CHECK_WITH_ASSERT(VA_STATUS_SUCCESS == vaSts, MFX_ERR_DEVICE_FAILED);
-
-    VAMotionVector* mvs;
-    VAStatsStatisticsH264* mbstat;
-
     mfxENCInput*  in  = reinterpret_cast<mfxENCInput* >(task.m_userData[0]);
     mfxENCOutput* out = reinterpret_cast<mfxENCOutput*>(task.m_userData[1]);
 
     //find control buffer
     mfxExtFeiPreEncCtrl*   feiCtrl   = GetExtBufferFEI(in,  feiFieldId);
-    //find output surfaces
+    //find output buffers
     mfxExtFeiPreEncMV*     mvsOut    = GetExtBufferFEI(out, feiFieldId);
     mfxExtFeiPreEncMBStat* mbstatOut = GetExtBufferFEI(out, feiFieldId);
 
-    if (!feiCtrl->DisableMVOutput && mvsOut && (VA_INVALID_ID != statMVid))
+    // If no user-requested output buffers - sync via input surface, otherwise - sync on mapping output buffer
+    if (!mvsOut && !mbstatOut)
     {
-        // Copy back MVs
+        {
+            MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaSyncSurface");
+            vaSts = vaSyncSurface(m_vaDisplay, waitSurface);
+        }
+        // following code is workaround:
+        // because of driver bug it could happen that decoding error will not be returned after decoder sync
+        // and will be returned at subsequent encoder sync instead
+        // just ignore VA_STATUS_ERROR_DECODING_ERROR in encoder
+        if (vaSts == VA_STATUS_ERROR_DECODING_ERROR)
+            vaSts = VA_STATUS_SUCCESS;
+        MFX_CHECK_WITH_ASSERT(VA_STATUS_SUCCESS == vaSts, MFX_ERR_DEVICE_FAILED);
+    }
 
+    if (!feiCtrl->DisableMVOutput && mvsOut)
+    {
         MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_HOTSPOTS, "MV");
+
+        MFX_CHECK(VA_INVALID_ID != statMVid, MFX_ERR_UNKNOWN);
+
+        VAMotionVector* mvs;
         {
             MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaMapBuffer");
             vaSts = vaMapBuffer(
@@ -734,11 +737,13 @@ mfxStatus VAAPIFEIPREENCEncoder::QueryStatus(
         }
     }
 
-    if (!feiCtrl->DisableStatisticsOutput && mbstatOut && VA_INVALID_ID != statOUTid)
+    if (!feiCtrl->DisableStatisticsOutput && mbstatOut)
     {
-        // Copy back statistics
-
         MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_HOTSPOTS, "MBstat");
+
+        MFX_CHECK(VA_INVALID_ID != statOUTid, MFX_ERR_UNKNOWN);
+
+        VAStatsStatisticsH264* mbstat;
         {
             MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaMapBuffer");
             vaSts = vaMapBuffer(
