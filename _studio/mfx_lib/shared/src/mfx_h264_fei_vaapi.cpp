@@ -1593,17 +1593,6 @@ mfxStatus VAAPIFEIENCEncoder::QueryStatus(
     }
     MFX_CHECK(indxSurf != m_statFeedbackCache.size(), MFX_ERR_UNKNOWN);
 
-    {
-        MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaSyncSurface");
-        vaSts = vaSyncSurface(m_vaDisplay, waitSurface);
-    }
-
-    // ignore VA_STATUS_ERROR_DECODING_ERROR in encoder
-    if (vaSts == VA_STATUS_ERROR_DECODING_ERROR)
-        vaSts = VA_STATUS_SUCCESS;
-    MFX_CHECK_WITH_ASSERT(VA_STATUS_SUCCESS == vaSts, MFX_ERR_DEVICE_FAILED);
-
-
     // In case of single-field processing, only one buffer is attached
     mfxU32 idxToPickBuffer = task.m_singleFieldMode ? 0 : feiFieldId;
 
@@ -1612,12 +1601,28 @@ mfxStatus VAAPIFEIENCEncoder::QueryStatus(
     mfxExtFeiEncMV*     mvout     = GetExtBufferFEI(out, idxToPickBuffer);
     mfxExtFeiPakMBCtrl* mbcodeout = GetExtBufferFEI(out, idxToPickBuffer);
 
+    // If no user-requested output buffers - sync via input surface, otherwise - sync on mapping output buffer
+    if (!mbcodeout && !mvout && !mbstat)
+    {
+        {
+            MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaSyncSurface");
+            vaSts = vaSyncSurface(m_vaDisplay, waitSurface);
+        }
+
+        // ignore VA_STATUS_ERROR_DECODING_ERROR in encoder
+        if (vaSts == VA_STATUS_ERROR_DECODING_ERROR)
+            vaSts = VA_STATUS_SUCCESS;
+        MFX_CHECK_WITH_ASSERT(VA_STATUS_SUCCESS == vaSts, MFX_ERR_DEVICE_FAILED);
+    }
+
     /* NO Bitstream in ENC */
     task.m_bsDataLength[feiFieldId] = 0;
 
-    if (mbstat != NULL && vaFeiMBStatId != VA_INVALID_ID)
+    if (mbstat)
     {
         MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_HOTSPOTS, "MBstat");
+
+        MFX_CHECK(vaFeiMBStatId != VA_INVALID_ID, MFX_ERR_UNKNOWN);
         VAEncFEIDistortionH264* mbs;
         {
             MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaMapBuffer");
@@ -1639,9 +1644,11 @@ mfxStatus VAAPIFEIENCEncoder::QueryStatus(
         MFX_DESTROY_VABUFFER(m_vaFeiMBStatId[feiFieldId], m_vaDisplay);
     }
 
-    if (mvout != NULL && vaFeiMVOutId != VA_INVALID_ID)
+    if (mvout)
     {
         MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_HOTSPOTS, "MV");
+
+        MFX_CHECK(vaFeiMVOutId != VA_INVALID_ID, MFX_ERR_UNKNOWN);
         VAMotionVector* mvs;
         {
             MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaMapBuffer");
@@ -1663,9 +1670,11 @@ mfxStatus VAAPIFEIENCEncoder::QueryStatus(
         }
     }
 
-    if (mbcodeout != NULL && vaFeiMBCODEOutId != VA_INVALID_ID)
+    if (mbcodeout)
     {
         MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_HOTSPOTS, "MBcode");
+
+        MFX_CHECK(vaFeiMBCODEOutId != VA_INVALID_ID, MFX_ERR_UNKNOWN);
         VAEncFEIMBCodeH264* mbcs;
         {
             MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_EXTCALL, "vaMapBuffer");
