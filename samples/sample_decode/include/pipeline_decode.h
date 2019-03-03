@@ -33,6 +33,7 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 #include "decode_render.h"
 #include "mfx_buffering.h"
 #include <memory>
+#include <mutex>
 
 #include "sample_utils.h"
 #include "base_allocator.h"
@@ -240,9 +241,7 @@ protected: // functions
     virtual mfxStatus DeliverOutput(mfxFrameSurface1* frame);
     virtual void PrintPerFrameStat(bool force = false);
 
-    virtual mfxStatus DeliverLoop(void);
-
-    static unsigned int MFX_STDCALL DeliverThreadFunc(void* ctx);
+    virtual void DeliverLoop();
 
 protected: // variables
     CSmplYUVWriter          m_FileWriter;
@@ -281,8 +280,10 @@ protected: // variables
     msdkOutputSurface*      m_pCurrentFreeOutputSurface; // surface detached from free output surfaces array
     msdkOutputSurface*      m_pCurrentOutputSurface; // surface detached from output surfaces array
 
-    MSDKSemaphore*          m_pDeliverOutputSemaphore; // to access to DeliverOutput method
-    MSDKEvent*              m_pDeliveredEvent; // to signal when output surfaces will be processed
+    std::mutex              m_deliverMutex;   // to protect m_DeliveredSurfacesPool
+    std::condition_variable m_cDeliverOutput; // to access to DeliverOutput method
+    bool                    m_bFrameAdded;
+    std::condition_variable m_сDeliveredEvent; // to signal when output surfaces will be processed
     mfxStatus               m_error; // error returned by DeliverOutput method
     bool                    m_bStopDeliverLoop;
 

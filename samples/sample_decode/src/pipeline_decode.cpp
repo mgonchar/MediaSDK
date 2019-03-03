@@ -20,7 +20,8 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 #include "mfx_samples_config.h"
 #include "sample_defs.h"
 #include <algorithm>
-
+#include <chrono>
+#include <thread>
 
 #include <ctime>
 #include <algorithm>
@@ -76,9 +77,8 @@ CDecodingPipeline::CDecodingPipeline()
     m_pCurrentFreeOutputSurface = NULL;
     m_pCurrentOutputSurface = NULL;
 
-    m_pDeliverOutputSemaphore = NULL;
-    m_pDeliveredEvent = NULL;
     m_error = MFX_ERR_NONE;
+    m_bFrameAdded = false;
     m_bStopDeliverLoop = false;
 
     m_eWorkMode = MODE_PERFORMANCE;
@@ -1516,14 +1516,19 @@ mfxStatus CDecodingPipeline::DeliverOutput(mfxFrameSurface1* frame)
     return res;
 }
 
-mfxStatus CDecodingPipeline::DeliverLoop(void)
+void CDecodingPipeline::DeliverLoop()
 {
-    mfxStatus res = MFX_ERR_NONE;
+    std::unique_lock<std::mutex> lock(m_deliverMutex);
 
-    while (!m_bStopDeliverLoop) {
-        m_pDeliverOutputSemaphore->Wait();
-        if (m_bStopDeliverLoop) {
-            continue;
+    while (true)
+    {
+        m_cDeliverOutput.wait(lock, [this](){ return m_bStopDeliverLoop || m_bFrameAdded; });
+
+        m_bFrameAdded = false;
+
+        if (m_bStopDeliverLoop)
+        {
+            return;
         }
         if (MFX_ERR_NONE != m_error) {
             continue;
@@ -1540,19 +1545,10 @@ mfxStatus CDecodingPipeline::DeliverLoop(void)
 
         pCurrentDeliveredSurface = NULL;
         msdk_atomic_inc32(&m_output_count);
-        m_pDeliveredEvent->Signal();
+        m_сDeliveredEvent.notify_all();
     }
-    return res;
-}
 
-unsigned int MFX_STDCALL CDecodingPipeline::DeliverThreadFunc(void* ctx)
-{
-    CDecodingPipeline* pipeline = (CDecodingPipeline*)ctx;
-
-    mfxStatus sts;
-    sts = pipeline->DeliverLoop();
-
-    return 0;
+    return;
 }
 
 void CDecodingPipeline::PrintPerFrameStat(bool force)
@@ -1613,21 +1609,34 @@ mfxStatus CDecodingPipeline::SyncOutputSurface(mfxU32 wait)
             PrintPerFrameStat();
         }
 
-        if (m_eWorkMode == MODE_PERFORMANCE) {
-            m_output_count = m_synced_count;
-            ReturnSurfaceToBuffers(m_pCurrentOutputSurface);
-        } else if (m_eWorkMode == MODE_FILE_DUMP) {
-            sts = DeliverOutput(&(m_pCurrentOutputSurface->surface->frame));
-            if (MFX_ERR_NONE != sts) {
-                sts = MFX_ERR_UNKNOWN;
-            } else {
+        switch(m_eWorkMode)
+        {
+            case MODE_PERFORMANCE:
                 m_output_count = m_synced_count;
+                ReturnSurfaceToBuffers(m_pCurrentOutputSurface);
+                break;
+
+            case MODE_FILE_DUMP:
+                sts = DeliverOutput(&(m_pCurrentOutputSurface->surface->frame));
+
+                if (MFX_ERR_NONE != sts) {
+                    sts = MFX_ERR_UNKNOWN;
+                } else {
+                    m_output_count = m_synced_count;
+                }
+                ReturnSurfaceToBuffers(m_pCurrentOutputSurface);
+                break;
+
+            case MODE_RENDERING:
+            {
+                std::lock_guard<std::mutex> lock(m_deliverMutex);
+
+                m_DeliveredSurfacesPool.AddSurface(m_pCurrentOutputSurface);
+                m_bFrameAdded = true;
+                m_pDeliveredEvent->Reset();
+                m_cDeliverOutput.notify_all();
             }
-            ReturnSurfaceToBuffers(m_pCurrentOutputSurface);
-        } else if (m_eWorkMode == MODE_RENDERING) {
-            m_DeliveredSurfacesPool.AddSurface(m_pCurrentOutputSurface);
-            m_pDeliveredEvent->Reset();
-            m_pDeliverOutputSemaphore->Post();
+            break;
         }
         m_pCurrentOutputSurface = NULL;
     }
@@ -1643,21 +1652,15 @@ mfxStatus CDecodingPipeline::RunDecoding()
     bool                bErrIncompatibleVideoParams = false;
     CTimeInterval<>     decodeTimer(m_bIsCompleteFrame);
     time_t start_time = time(0);
-    MSDKThread * pDeliverThread = NULL;
 #if (MFX_VERSION >= 1025)
     mfxExtDecodeErrorReport *pDecodeErrorReport = NULL;
 #endif
 
-    if (m_eWorkMode == MODE_RENDERING) {
-        m_pDeliverOutputSemaphore = new MSDKSemaphore(sts);
-        m_pDeliveredEvent = new MSDKEvent(sts, false, false);
-        pDeliverThread = new MSDKThread(sts, DeliverThreadFunc, this);
-        if (!pDeliverThread || !m_pDeliverOutputSemaphore || !m_pDeliveredEvent) {
-            MSDK_SAFE_DELETE(pDeliverThread);
-            MSDK_SAFE_DELETE(m_pDeliverOutputSemaphore);
-            MSDK_SAFE_DELETE(m_pDeliveredEvent);
-            return MFX_ERR_MEMORY_ALLOC;
-        }
+    if (m_eWorkMode == MODE_RENDERING)
+    {
+        // Create a thread and let it work independently from the thread handle 
+        std::thread deliverThread(DeliverLoop);
+        deliverThread.detach();
     }
 
     while (((sts == MFX_ERR_NONE) || (MFX_ERR_MORE_DATA == sts) || (MFX_ERR_MORE_SURFACE == sts)) && (m_nFrames > m_output_count))
@@ -1720,16 +1723,31 @@ mfxStatus CDecodingPipeline::RunDecoding()
 #endif
                 // we stuck with no free surface available, now we will sync...
                 sts = SyncOutputSurface(MSDK_DEC_WAIT_INTERVAL);
-                if (MFX_ERR_MORE_DATA == sts) {
-                    if ((m_eWorkMode == MODE_PERFORMANCE) || (m_eWorkMode == MODE_FILE_DUMP)) {
-                        sts = MFX_ERR_NOT_FOUND;
-                    } else if (m_eWorkMode == MODE_RENDERING) {
-                        if (m_synced_count != m_output_count) {
-                            sts = m_pDeliveredEvent->TimedWait(MSDK_DEC_WAIT_INTERVAL);
-                        } else {
+                if (MFX_ERR_MORE_DATA == sts)
+                {
+                    switch (m_eWorkMode)
+                    {
+                        case MODE_PERFORMANCE:
+                        case MODE_FILE_DUMP:
                             sts = MFX_ERR_NOT_FOUND;
-                        }
+                            break;
+
+                        case MODE_RENDERING:
+                            if (m_synced_count != m_output_count)
+                            {
+                                using std::chrono;
+                                bool isSyncSuccessful = m_сDeliveredEvent.wait_until(std::unique_lock<std::mutex>(std::mutex), system_clock::now() + milliseconds(MSDK_DEC_WAIT_INTERVAL),
+                                        [this](){ return m_synced_count == m_output_count; });
+
+                                sts = isSyncSuccessful ? MFX_ERR_NONE : MFX_ERR_UNKNOWN;
+                            }
+                            else
+                            {
+                                sts = MFX_ERR_NOT_FOUND;
+                            }
+                            break;
                     }
+
                     if (MFX_ERR_NOT_FOUND == sts) {
                         msdk_printf(MSDK_STRING("fatal: failed to find output surface, that's a bug!\n"));
                         break;
@@ -1777,7 +1795,7 @@ mfxStatus CDecodingPipeline::RunDecoding()
                 if (pBitstream && MFX_ERR_MORE_DATA == sts && pBitstream->MaxLength == pBitstream->DataLength)
                 {
                     mfxStatus stsExt = ExtendMfxBitstream(pBitstream, pBitstream->MaxLength * 2);
-                    MSDK_CHECK_STATUS_SAFE(stsExt, "ExtendMfxBitstream failed", MSDK_SAFE_DELETE(pDeliverThread));
+                    MSDK_CHECK_STATUS(stsExt, "ExtendMfxBitstream failed");
                 }
 
                 if (MFX_WRN_DEVICE_BUSY == sts) {
@@ -1826,9 +1844,7 @@ mfxStatus CDecodingPipeline::RunDecoding()
                 MSDK_IGNORE_MFX_STS(sts, MFX_ERR_MORE_DATA);
                 if (sts) MSDK_PRINT_WRN_MSG(sts, "SyncOutputSurface failed")
 
-                while (m_synced_count != m_output_count) {
-                    m_pDeliveredEvent->Wait();
-                }
+                m_сDeliveredEvent.wait(std::unique_lock<std::mutex>(std::mutex), [this](){ return m_synced_count == m_output_count; })
                 break;
             } else if (MFX_ERR_INCOMPATIBLE_VIDEO_PARAM == sts) {
                 bErrIncompatibleVideoParams = true;
@@ -1946,16 +1962,11 @@ mfxStatus CDecodingPipeline::RunDecoding()
             CTimer::ConvertToSeconds(*std::min_element(m_vLatency.begin(), m_vLatency.end()))*1000);
     }
 
-    if (m_eWorkMode == MODE_RENDERING) {
+    if (m_eWorkMode == MODE_RENDERING)
+    {
         m_bStopDeliverLoop = true;
-        m_pDeliverOutputSemaphore->Post();
-        if (pDeliverThread)
-            pDeliverThread->Wait();
+        m_cDeliverOutput.notify_all();
     }
-
-    MSDK_SAFE_DELETE(m_pDeliverOutputSemaphore);
-    MSDK_SAFE_DELETE(m_pDeliveredEvent);
-    MSDK_SAFE_DELETE(pDeliverThread);
 
     // exit in case of other errors
     MSDK_CHECK_STATUS(sts, "Unexpected error!!");
