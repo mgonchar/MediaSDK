@@ -394,7 +394,26 @@ namespace MfxHwH264Encode
 
     bool operator ==(mfxExtSpsHeader const & lhs, mfxExtSpsHeader const & rhs);
 
+    bool operator !=(mfxExtSpsHeader const & lhs, mfxExtSpsHeader const & rhs)
+    {
+        return !(lhs == rhs);
+    }
+
     template <> inline bool Equal<mfxExtSpsHeader>(mfxExtSpsHeader const & lhs, mfxExtSpsHeader const & rhs)
+    {
+        return lhs == rhs;
+    }
+
+    bool operator ==(VuiParameters const & lhs, VuiParameters const & rhs);
+
+    template <> inline bool Equal<VuiParameters>(VuiParameters const & lhs, VuiParameters const & rhs)
+    {
+        return lhs == rhs;
+    }
+
+    bool operator ==(HrdParameters const & lhs, HrdParameters const & rhs);
+
+    template <> inline bool Equal<HrdParameters>(HrdParameters const & lhs, HrdParameters const & rhs)
     {
         return lhs == rhs;
     }

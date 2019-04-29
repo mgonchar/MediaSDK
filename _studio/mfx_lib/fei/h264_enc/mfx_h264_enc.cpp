@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Intel Corporation
+// Copyright (c) 2018-2019 Intel Corporation
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -418,9 +418,7 @@ mfxStatus VideoENC_ENC::ProcessAndCheckNewParameters(
     mfxExtSpsHeader const & extSpsOld = GetExtBufferRef(m_video);
 
     // check if IDR required after change of encoding parameters
-    bool isSpsChanged = extSpsNew.vuiParametersPresentFlag == 0 ?
-        memcmp(&extSpsNew, &extSpsOld, sizeof(mfxExtSpsHeader) - sizeof(VuiParameters)) != 0 :
-    !Equal(extSpsNew, extSpsOld);
+    bool isSpsChanged = extSpsNew != extSpsOld;
 
     isIdrRequired = isSpsChanged
         || newPar.mfx.GopPicSize != m_video.mfx.GopPicSize;

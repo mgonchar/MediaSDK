@@ -148,6 +148,14 @@ T align2_value(T value, size_t alignment = 16)
 }
 }
 
+#MFX_COMPARE_FIELD(Field)       lhs.Field == rhs.Field
+#MFX_COMPARE_ARRAY_FIELD(Array) std::equal(std::begin(lhs.Array), std::end(lhs.Array), std::begin(rhs.Array))
+
+bool operator ==(mfxExtBuffer const & lhs, mfxExtBuffer const & rhs)
+{
+    return MFX_COMPARE_FIELD(BufferId) && MFX_COMPARE_FIELD(BufferSz);
+}
+
 #define MFX_COPY_FIELD(Field)       buf_dst.Field = buf_src.Field
 #define MFX_COPY_ARRAY_FIELD(Array) std::copy(std::begin(buf_src.Array), std::end(buf_src.Array), std::begin(buf_dst.Array))
 

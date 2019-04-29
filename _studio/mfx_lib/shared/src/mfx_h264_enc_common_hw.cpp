@@ -8725,34 +8725,126 @@ bool MfxHwH264Encode::IsMvcProfile(mfxU32 profile)
         profile == MFX_PROFILE_AVC_MULTIVIEW_HIGH;
 }
 
+bool MfxHwH264Encode::operator ==(HrdParameters const & lhs, HrdParameters const & rhs)
+{
+    return MFX_COMPARE_FIELD(cpbCntMinus1)
+        && MFX_COMPARE_FIELD(bitRateScale)
+        && MFX_COMPARE_FIELD(cpbSizeScale)
+        && MFX_COMPARE_ARRAY_FIELD(bitRateValueMinus1)
+        && MFX_COMPARE_ARRAY_FIELD(cpbSizeValueMinus1)
+        && MFX_COMPARE_ARRAY_FIELD(cbrFlag)
+        && MFX_COMPARE_FIELD(initialCpbRemovalDelayLengthMinus1)
+        && MFX_COMPARE_FIELD(cpbRemovalDelayLengthMinus1)
+        && MFX_COMPARE_FIELD(dpbOutputDelayLengthMinus1)
+        && MFX_COMPARE_FIELD(timeOffsetLength);
+}
+
+bool MfxHwH264Encode::operator ==(VuiParameters const & lhs, VuiParameters const & rhs)
+{
+    bool equal = MFX_COMPARE_FIELD(flags.aspectRatioInfoPresent)
+              && MFX_COMPARE_FIELD(flags.overscanInfoPresent)
+              && MFX_COMPARE_FIELD(flags.overscanAppropriate)
+              && MFX_COMPARE_FIELD(flags.videoSignalTypePresent)
+              && MFX_COMPARE_FIELD(flags.videoFullRange)
+              && MFX_COMPARE_FIELD(flags.colourDescriptionPresent)
+              && MFX_COMPARE_FIELD(flags.chromaLocInfoPresent)
+              && MFX_COMPARE_FIELD(flags.timingInfoPresent)
+              && MFX_COMPARE_FIELD(flags.fixedFrameRate)
+              && MFX_COMPARE_FIELD(flags.nalHrdParametersPresent)
+              && MFX_COMPARE_FIELD(flags.vclHrdParametersPresent)
+              && MFX_COMPARE_FIELD(flags.lowDelayHrd)
+              && MFX_COMPARE_FIELD(flags.picStructPresent)
+              && MFX_COMPARE_FIELD(flags.bitstreamRestriction)
+              && MFX_COMPARE_FIELD(flags.motionVectorsOverPicBoundaries)
+              && MFX_COMPARE_FIELD(flags.reserved)
+              && MFX_COMPARE_FIELD(maxBytesPerPicDenom)
+              && MFX_COMPARE_FIELD(maxBitsPerMbDenom)
+              && MFX_COMPARE_FIELD(log2MaxMvLengthHorizontal)
+              && MFX_COMPARE_FIELD(log2MaxMvLengthVertical)
+              && MFX_COMPARE_FIELD(numReorderFrames)
+              && MFX_COMPARE_FIELD(maxDecFrameBuffering);
+
+    if (!equal)
+        return false;
+
+    if (lhs.vui.flags.nalHrdParametersPresent)
+        equal = equal && MFX_COMPARE_FIELD(vui.nalHrdParameters);
+
+    if (!equal)
+        return false;
+
+    if (lhs.vui.flags.vclHrdParametersPresent)
+        equal = equal && MFX_COMPARE_FIELD(vui.vclHrdParameters);
+
+    return equal;
+}
 
 bool MfxHwH264Encode::operator ==(
     mfxExtSpsHeader const & lhs,
     mfxExtSpsHeader const & rhs)
-{
-    // part from the beginning of sps to nalHrdParameters
-    mfxU8 const * lhsBegin1 = (mfxU8 const *)&lhs;
-    mfxU8 const * rhsBegin1 = (mfxU8 const *)&rhs;
-    mfxU8 const * lhsEnd1   = (mfxU8 const *)&lhs.vui.nalHrdParameters;
+{    
+    bool equal = MFX_COMPARE_FIELD(Header)
+              && MFX_COMPARE_FIELD(nalRefIdc)
+              && MFX_COMPARE_FIELD(nalUnitType)
+              && MFX_COMPARE_FIELD(profileIdc)
+              && MFX_COMPARE_FIELD(constraints.set0)
+              && MFX_COMPARE_FIELD(constraints.set1)
+              && MFX_COMPARE_FIELD(constraints.set2)
+              && MFX_COMPARE_FIELD(constraints.set3)
+              && MFX_COMPARE_FIELD(constraints.set4)
+              && MFX_COMPARE_FIELD(constraints.set5)
+              && MFX_COMPARE_FIELD(constraints.set6)
+              && MFX_COMPARE_FIELD(constraints.set7)
+              && MFX_COMPARE_FIELD(levelIdc)
+              && MFX_COMPARE_FIELD(seqParameterSetId)
+              && MFX_COMPARE_FIELD(chromaFormatIdc)
+              && MFX_COMPARE_FIELD(separateColourPlaneFlag)
+              && MFX_COMPARE_FIELD(bitDepthLumaMinus8)
+              && MFX_COMPARE_FIELD(bitDepthChromaMinus8)
+              && MFX_COMPARE_FIELD(qpprimeYZeroTransformBypassFlag)
+              && MFX_COMPARE_FIELD(seqScalingMatrixPresentFlag)
+              && MFX_COMPARE_ARRAY_FIELD(seqScalingListPresentFlag)
+              && MFX_COMPARE_FIELD(log2MaxFrameNumMinus4)
+              && MFX_COMPARE_FIELD(picOrderCntType)
+              && MFX_COMPARE_FIELD(log2MaxPicOrderCntLsbMinus4)
+              && MFX_COMPARE_FIELD(deltaPicOrderAlwaysZeroFlag)
+              && MFX_COMPARE_FIELD(offsetForNonRefPic)
+              && MFX_COMPARE_FIELD(offsetForTopToBottomField)
+              && MFX_COMPARE_FIELD(numRefFramesInPicOrderCntCycle)
+              && MFX_COMPARE_ARRAY_FIELD(offsetForRefFrame)
+              && MFX_COMPARE_FIELD(maxNumRefFrames)
+              && MFX_COMPARE_FIELD(gapsInFrameNumValueAllowedFlag)
+              && MFX_COMPARE_FIELD(picWidthInMbsMinus1)
+              && MFX_COMPARE_FIELD(picHeightInMapUnitsMinus1)
+              && MFX_COMPARE_FIELD(frameMbsOnlyFlag)
+              && MFX_COMPARE_FIELD(mbAdaptiveFrameFieldFlag)
+              && MFX_COMPARE_FIELD(direct8x8InferenceFlag)
+              && MFX_COMPARE_FIELD(frameCroppingFlag)
+              && MFX_COMPARE_FIELD(frameCropLeftOffset)
+              && MFX_COMPARE_FIELD(frameCropRightOffset)
+              && MFX_COMPARE_FIELD(frameCropTopOffset)
+              && MFX_COMPARE_FIELD(frameCropBottomOffset)
+              && MFX_COMPARE_FIELD(vuiParametersPresentFlag);
 
-    // part from the end of vclHrdParameters to the end of sps
-    mfxU8 const * lhsBegin2 = (mfxU8 const *)&lhs.vui.maxBytesPerPicDenom;
-    mfxU8 const * rhsBegin2 = (mfxU8 const *)&rhs.vui.maxBytesPerPicDenom;
-    mfxU8 const * lhsEnd2   = (mfxU8 const *)&lhs + sizeof(lhs);
-
-    if (memcmp(lhsBegin1, rhsBegin1, lhsEnd1 - lhsBegin1) != 0 ||
-        memcmp(lhsBegin2, rhsBegin2, lhsEnd2 - lhsBegin2) != 0)
+    if (!equal)
         return false;
 
-    if (lhs.vui.flags.nalHrdParametersPresent)
-        if (!Equal(lhs.vui.nalHrdParameters, rhs.vui.nalHrdParameters))
-            return false;
+    for (uint32_t i = 0; i < ((lhs.chromaFormatIdc != 3) ? 8u : 12u); ++i)
+    {
+        if (lhs.seqScalingListPresentFlag[i])
+        {
+            equal = equal && ((i < 6) ? MFX_COMPARE_ARRAY_FIELD(scalingList4x4[i])
+                                      : MFX_COMPARE_ARRAY_FIELD(scalingList8x8[i - 6]));
+        }
+    }
 
-    if (lhs.vui.flags.vclHrdParametersPresent)
-        if (!Equal(lhs.vui.vclHrdParameters, rhs.vui.vclHrdParameters))
-            return false;
+    if (!equal)
+        return false;
 
-    return true;
+    if (lhs.vuiParametersPresentFlag)
+        equal = equal && MFX_COMPARE_FIELD(vui);
+
+    return equal;
 }
 
 mfxU8 * MfxHwH264Encode::PackPrefixNalUnitSvc(
